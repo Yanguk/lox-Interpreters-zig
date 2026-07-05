@@ -6,11 +6,11 @@ pub fn runFile(path: []const u8) !void {
 }
 
 pub fn runPrompt() !void {
-    std.debug.print("not yet implement!, fn runPrompt", .{});
+    std.debug.print("not yet implement!, fn runPrompt\n", .{});
 
     return;
 }
 
 fn run() !void {
-    std.debug.print("not yet implement!, fn run", .{});
+    std.debug.print("not yet implement!, fn run\n", .{});
 }
