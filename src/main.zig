@@ -8,7 +8,7 @@ pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(arena);
 
     switch (args.len) {
-        1 => try zig_lox.repl(init.io),
+        1 => try zig_lox.runPrompt(init.io, arena),
         2 => try zig_lox.runFile(args[1], init.io, arena),
         else => {
             std.debug.print("Usage: jlox [script]", .{});
