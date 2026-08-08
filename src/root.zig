@@ -1,5 +1,5 @@
 const std = @import("std");
-const Scanner = @import("scanner.zig").Scanner;
+const Scanner = @import("scanner.zig");
 const Io = std.Io;
 
 pub fn runFile(path: []const u8, io: Io, allocator: std.mem.Allocator) !void {
@@ -44,12 +44,13 @@ pub fn runPrompt(io: Io, allocator: std.mem.Allocator) !void {
 
 // For now, just print the tokens.
 fn run(source: []u8, allocator: std.mem.Allocator) !void {
-    var scanner = Scanner.init(source, allocator);
-    const tokens = scanner.scanTokens();
+    _ = allocator;
 
-    for (tokens) |token| {
-        std.debug.print("{c}", .{token});
-    }
+    _ = Scanner.scan(source);
+
+    // while (tokenIter.next()) |token| {
+    //     std.debug.print("{c}", .{token.lexeme});
+    // }
 }
 
 var hadError = false;

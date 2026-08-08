@@ -52,61 +52,92 @@ pub const TokenType = enum {
 
 const Token = struct {
     type: TokenType,
-    lexeme: ?[]u8 = null,
-    literal: ?[]u8 = null,
+    lexeme: []const u8,
     line: usize,
 };
 
-pub const Scanner = struct {
-    allocator: std.mem.Allocator,
-    source: []u8,
-    tokens: std.ArrayList(Token),
+const TokenIter = struct {
+    source: []const u8,
 
     start: usize = 0,
     current: usize = 0,
     line: usize = 1,
 
-    pub fn init(source: []u8, allocator: std.mem.Allocator) Scanner {
-        return Scanner{ .source = source, .allocator = allocator, .tokens = .empty };
-    }
+    finished: bool = false,
 
-    pub fn deInit(self: *Scanner) void {
-        self.tokens.deinit(self.allocator);
-    }
-
-    pub fn scanTokens(self: *Scanner) ![]Token {
-        while (!self.isAtEnd()) {
-            self.start = self.current;
-            try self.scanToken();
+    pub fn next(self: *TokenIter) ?Token {
+        if (self.finished) {
+            return null;
         }
 
-        try self.tokens.append(self.allocator, .{
-            .type = TokenType.Eof,
-            .line = self.line,
-        });
+        if (self.isAtEnd()) {
+            self.finished = true;
 
-        return self.tokens.items;
-    }
+            return self.makeToken(.Eof);
+        }
 
-    fn scanToken(self: *Scanner) !void {
+        self.skipTrivia();
+        self.start = self.current;
+
         const char = self.advance();
 
-        switch (char) {
-            '(' => try self.addToken(TokenType.LeftParen),
-            ')' => try self.addToken(TokenType.RightParen),
-            '{' => try self.addToken(TokenType.LeftBrace),
-            '}' => try self.addToken(TokenType.RightBrace),
-            ',' => try self.addToken(TokenType.Comma),
-            '-' => try self.addToken(TokenType.Minus),
-            '+' => try self.addToken(TokenType.Plus),
-            ';' => try self.addToken(TokenType.Semicolon),
-            '*' => try self.addToken(TokenType.Star),
-            '!' => try self.addToken(if (self.match('=')) TokenType.BangEqual else TokenType.Bang),
-            else => {},
+        return switch (char) {
+            '(' => self.makeToken(TokenType.LeftParen),
+            ')' => self.makeToken(TokenType.RightParen),
+            '{' => self.makeToken(TokenType.LeftBrace),
+            '}' => self.makeToken(TokenType.RightBrace),
+            ',' => self.makeToken(TokenType.Comma),
+            '-' => self.makeToken(TokenType.Minus),
+            '+' => self.makeToken(TokenType.Plus),
+            ';' => self.makeToken(TokenType.Semicolon),
+            '*' => self.makeToken(TokenType.Star),
+            '!' => self.makeToken(if (self.match('=')) TokenType.BangEqual else TokenType.Bang),
+            '/' => self.makeToken(TokenType.Slash),
+            else => self.makeToken(TokenType.Error),
+        };
+    }
+
+    fn skipTrivia(self: *TokenIter) void {
+        while (true) {
+            const char = self.peek();
+
+            switch (char) {
+                '\r', '\t', ' ' => {
+                    _ = self.advance();
+                },
+                '\n' => {
+                    self.line += 1;
+                    _ = self.advance();
+                },
+                '/' => {
+                    if (self.peekNext() == '/') {
+                        while (self.peek() != '\n' and !self.isAtEnd()) {
+                            _ = self.advance();
+                        }
+                    }
+                },
+                else => return,
+            }
         }
     }
 
-    fn match(self: *Scanner, char: u8) bool {
+    fn makeToken(self: *TokenIter, typ: TokenType) Token {
+        return Token{
+            .type = typ,
+            .line = self.line,
+            .lexeme = self.source[self.start..self.current],
+        };
+    }
+
+    fn peek(self: *TokenIter) u8 {
+        return if (self.isAtEnd()) '\x00' else self.source[self.current];
+    }
+
+    fn peekNext(self: *TokenIter) u8 {
+        return if (self.current + 1 >= self.source.len) 0 else self.source[self.current + 1];
+    }
+
+    fn match(self: *TokenIter, char: u8) bool {
         if (self.isAtEnd()) {
             return false;
         }
@@ -122,24 +153,21 @@ pub const Scanner = struct {
         return is_match;
     }
 
-    fn isAtEnd(self: *Scanner) bool {
+    fn isAtEnd(self: *TokenIter) bool {
         return self.current >= self.source.len;
     }
 
-    fn advance(self: *Scanner) u8 {
+    fn advance(self: *TokenIter) u8 {
         const ch = self.source[self.current];
         self.current += 1;
 
         return ch;
     }
-
-    fn addToken(self: *Scanner, tokenType: TokenType) !void {
-        try self.tokens.append(self.allocator, .{
-            .type = tokenType,
-            .line = self.line,
-        });
-    }
 };
+
+pub fn scan(source: []const u8) TokenIter {
+    return TokenIter{ .source = source };
+}
 
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -147,12 +175,25 @@ const expectEqual = std.testing.expectEqual;
 test "Scan TokenType" {
     const gpa = std.testing.allocator;
 
-    var source = [_]u8{ '(', ')', '{', '}', ',', '-', '+', ';', '*', '!', '=' };
+    const source = "(){ }, //주석\n-+;*!=";
 
-    var scanner = Scanner.init(source[0..], gpa);
-    defer scanner.deInit();
+    var tokenIter = scan(source[0..]);
 
-    const tokens = try scanner.scanTokens();
+    var tokenArray: std.ArrayList(Token) = .empty;
+    defer tokenArray.deinit(gpa);
+
+    while (tokenIter.next()) |token| {
+        try tokenArray.append(gpa, token);
+    }
+
+    const tokens = tokenArray.items;
+
+    // for (tokens) |token| {
+    //     std.debug.print(
+    //         "DEBUG_💥[{s}:{d}]: token={any}\n, lexeme={s}\n",
+    //         .{ @src().file, @src().line, token, token.lexeme },
+    //     );
+    // }
 
     // 마지막 EOF까지 포함
     try expectEqual(@as(usize, 11), tokens.len);
