@@ -70,30 +70,49 @@ const TokenIter = struct {
             return null;
         }
 
+        self.skipTrivia();
+        self.start = self.current;
+
         if (self.isAtEnd()) {
             self.finished = true;
 
             return self.makeToken(.Eof);
         }
 
-        self.skipTrivia();
-        self.start = self.current;
-
         const char = self.advance();
 
         return switch (char) {
-            '(' => self.makeToken(TokenType.LeftParen),
-            ')' => self.makeToken(TokenType.RightParen),
-            '{' => self.makeToken(TokenType.LeftBrace),
-            '}' => self.makeToken(TokenType.RightBrace),
-            ',' => self.makeToken(TokenType.Comma),
-            '-' => self.makeToken(TokenType.Minus),
-            '+' => self.makeToken(TokenType.Plus),
-            ';' => self.makeToken(TokenType.Semicolon),
-            '*' => self.makeToken(TokenType.Star),
-            '!' => self.makeToken(if (self.match('=')) TokenType.BangEqual else TokenType.Bang),
-            '/' => self.makeToken(TokenType.Slash),
-            else => self.makeToken(TokenType.Error),
+            '(' => self.makeToken(.LeftParen),
+            ')' => self.makeToken(.RightParen),
+            '{' => self.makeToken(.LeftBrace),
+            '}' => self.makeToken(.RightBrace),
+            ',' => self.makeToken(.Comma),
+            '-' => self.makeToken(.Minus),
+            '+' => self.makeToken(.Plus),
+            ';' => self.makeToken(.Semicolon),
+            '*' => self.makeToken(.Star),
+            '!' => self.makeToken(if (self.match('=')) .BangEqual else .Bang),
+            '/' => self.makeToken(.Slash),
+            '"' => self.string(),
+            else => self.makeError("Unexpected character."),
+        };
+    }
+
+    fn string(self: *TokenIter) Token {
+        while (self.peek() != '"' and !self.isAtEnd()) {
+            _ = self.advance();
+        }
+
+        if (self.isAtEnd()) {
+            return self.makeError("Unterminated string.");
+        }
+
+        const lexeme = self.source[self.start + 1 .. self.current - 1];
+
+        return Token{
+            .type = .String,
+            .lexeme = lexeme,
+            .line = self.line,
         };
     }
 
@@ -126,6 +145,14 @@ const TokenIter = struct {
             .type = typ,
             .line = self.line,
             .lexeme = self.source[self.start..self.current],
+        };
+    }
+
+    fn makeError(self: *TokenIter, messages: []const u8) Token {
+        return Token{
+            .type = .Error,
+            .line = self.line,
+            .lexeme = messages,
         };
     }
 
@@ -171,11 +198,15 @@ pub fn scan(source: []const u8) TokenIter {
 
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "Scan TokenType" {
     const gpa = std.testing.allocator;
 
-    const source = "(){ }, //주석\n-+;*!=";
+    const source =
+        \\ (){ }, //주석
+        \\ -+;*!=
+    ;
 
     var tokenIter = scan(source[0..]);
 
@@ -188,12 +219,12 @@ test "Scan TokenType" {
 
     const tokens = tokenArray.items;
 
-    // for (tokens) |token| {
-    //     std.debug.print(
-    //         "DEBUG_💥[{s}:{d}]: token={any}\n, lexeme={s}\n",
-    //         .{ @src().file, @src().line, token, token.lexeme },
-    //     );
-    // }
+    for (tokens) |token| {
+        std.debug.print(
+            "DEBUG_💥[{s}:{d}]: token={any}\n, lexeme=\"{s}\"\n",
+            .{ @src().file, @src().line, token, token.lexeme },
+        );
+    }
 
     // 마지막 EOF까지 포함
     try expectEqual(@as(usize, 11), tokens.len);
@@ -209,8 +240,6 @@ test "Scan TokenType" {
     try expectEqual(TokenType.BangEqual, tokens[9].type);
     try expectEqual(TokenType.Eof, tokens[10].type);
 
-    // line도 확인
-    for (tokens) |token| {
-        try expectEqual(@as(usize, 1), token.line);
-    }
+    try expectEqualStrings("!=", tokens[9].lexeme);
+    try expectEqualStrings("", tokens[10].lexeme);
 }

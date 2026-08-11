@@ -1,5 +1,5 @@
 const std = @import("std");
-const Scanner = @import("scanner.zig");
+const scanner = @import("scanner.zig");
 const Io = std.Io;
 
 pub fn runFile(path: []const u8, io: Io, allocator: std.mem.Allocator) !void {
@@ -46,20 +46,26 @@ pub fn runPrompt(io: Io, allocator: std.mem.Allocator) !void {
 fn run(source: []u8, allocator: std.mem.Allocator) !void {
     _ = allocator;
 
-    _ = Scanner.scan(source);
+    var tokenIter = scanner.scan(source);
 
-    // while (tokenIter.next()) |token| {
-    //     std.debug.print("{c}", .{token.lexeme});
-    // }
+    while (tokenIter.next()) |token| {
+        if (token.type == .Error) {
+            logError(token.line, token.lexeme);
+
+            std.process.exit(64);
+        }
+
+        std.debug.print("{s}\n", .{token.lexeme});
+    }
 }
 
 var hadError = false;
 
-fn logError(line: u32, message: []u8) void {
+fn logError(line: usize, message: []const u8) void {
     report(line, "", message);
 }
 
-fn report(line: u32, where: []u8, message: []u8) void {
-    std.debug.print("[line {s}] Error {s}: {s}", .{ line, where, message });
+fn report(line: usize, where: []u8, message: []const u8) void {
+    std.debug.print("[line {d}] Error {s}: {s}", .{ line, where, message });
     hadError = true;
 }
