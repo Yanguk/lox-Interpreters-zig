@@ -50,11 +50,42 @@ pub const TokenType = enum {
     Eof,
 };
 
+const keywords = std.StaticStringMap(TokenType).initComptime(.{
+    .{ "and", .And },
+    .{ "class", .Class },
+    .{ "else", .Else },
+    .{ "false", .False },
+    .{ "for", .For },
+    .{ "fun", .Fun },
+    .{ "if", .If },
+    .{ "nil", .Nil },
+    .{ "or", .Or },
+    .{ "print", .Print },
+    .{ "return", .Return },
+    .{ "super", .Super },
+    .{ "this", .This },
+    .{ "true", .True },
+    .{ "var", .Var },
+    .{ "while", .While },
+});
+
 const Token = struct {
     type: TokenType,
     lexeme: []const u8,
     line: usize,
 };
+
+fn isDigit(c: u8) bool {
+    return c >= '0' and c <= '9';
+}
+
+fn isAlpha(c: u8) bool {
+    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_';
+}
+
+fn isAlphaNumeric(c: u8) bool {
+    return isAlpha(c) or isDigit(c);
+}
 
 const TokenIter = struct {
     source: []const u8,
@@ -63,10 +94,10 @@ const TokenIter = struct {
     current: usize = 0,
     line: usize = 1,
 
-    finished: bool = false,
+    eof_emitted: bool = false,
 
     pub fn next(self: *TokenIter) ?Token {
-        if (self.finished) {
+        if (self.eof_emitted) {
             return null;
         }
 
@@ -74,14 +105,14 @@ const TokenIter = struct {
         self.start = self.current;
 
         if (self.isAtEnd()) {
-            self.finished = true;
+            self.eof_emitted = true;
 
             return self.makeToken(.Eof);
         }
 
-        const char = self.advance();
+        const c = self.advance();
 
-        return switch (char) {
+        return switch (c) {
             '(' => self.makeToken(.LeftParen),
             ')' => self.makeToken(.RightParen),
             '{' => self.makeToken(.LeftBrace),
@@ -92,9 +123,61 @@ const TokenIter = struct {
             ';' => self.makeToken(.Semicolon),
             '*' => self.makeToken(.Star),
             '!' => self.makeToken(if (self.match('=')) .BangEqual else .Bang),
+            '=' => self.makeToken(if (self.match('=')) .EqualEqual else .Equal),
+            '<' => self.makeToken(if (self.match('=')) .LessEqual else .Less),
+            '>' => self.makeToken(if (self.match('=')) .GreaterEqual else .Greater),
             '/' => self.makeToken(.Slash),
             '"' => self.string(),
-            else => self.makeError("Unexpected character."),
+            else => {
+                if (isDigit(c)) {
+                    return self.number();
+                }
+
+                if (isAlpha(c)) {
+                    return self.identifier();
+                }
+
+                return self.makeError("Unexpected character.");
+            },
+        };
+    }
+
+    fn number(self: *TokenIter) Token {
+        while (isDigit(self.peek())) {
+            _ = self.advance();
+        }
+
+        if (self.peek() == '.' and isDigit(self.peekNext())) {
+            // Consume the "."
+            _ = self.advance();
+
+            while (isDigit(self.peek())) {
+                _ = self.advance();
+            }
+        }
+
+        const lexeme = self.source[self.start..self.current];
+
+        return Token{
+            .type = .Number,
+            .lexeme = lexeme,
+            .line = self.line,
+        };
+    }
+
+    fn identifier(self: *TokenIter) Token {
+        while (isAlphaNumeric(self.peek())) {
+            _ = self.advance();
+        }
+
+        const lexeme = self.source[self.start..self.current];
+
+        const ty = keywords.get(lexeme) orelse .Identifier;
+
+        return Token{
+            .type = ty,
+            .lexeme = lexeme,
+            .line = self.line,
         };
     }
 
@@ -157,7 +240,7 @@ const TokenIter = struct {
     }
 
     fn peek(self: *TokenIter) u8 {
-        return if (self.isAtEnd()) '\x00' else self.source[self.current];
+        return if (self.isAtEnd()) 0 else self.source[self.current];
     }
 
     fn peekNext(self: *TokenIter) u8 {
@@ -242,4 +325,28 @@ test "Scan TokenType" {
 
     try expectEqualStrings("!=", tokens[9].lexeme);
     try expectEqualStrings("", tokens[10].lexeme);
+}
+
+test "scan tokens" {
+    const source = "var foo = 123;";
+
+    var tokenIter = scan(source);
+
+    const token1 = tokenIter.next() orelse unreachable;
+    try std.testing.expectEqual(TokenType.Var, token1.type);
+
+    const token2 = tokenIter.next() orelse unreachable;
+    try std.testing.expectEqual(TokenType.Identifier, token2.type);
+
+    const token3 = tokenIter.next() orelse unreachable;
+    try std.testing.expectEqual(TokenType.Equal, token3.type);
+
+    const token4 = tokenIter.next() orelse unreachable;
+    try std.testing.expectEqual(TokenType.Number, token4.type);
+
+    const token5 = tokenIter.next() orelse unreachable;
+    try std.testing.expectEqual(TokenType.Semicolon, token5.type);
+
+    const token6 = tokenIter.next() orelse unreachable;
+    try std.testing.expectEqual(TokenType.Eof, token6.type);
 }
